@@ -20,8 +20,8 @@ module GitP4Sync
       end
     end
 
-    git_path = add_slash(File.expand_path(git_path))
-    p4_path = add_slash(File.expand_path(p4_path))
+    git_path = Pathname.new(File.expand_path(git_path))
+    p4_path = Pathname.new(File.expand_path(p4_path))
     
     verify_path_exist!(git_path)
     verify_path_exist!(p4_path)
@@ -33,7 +33,7 @@ module GitP4Sync
       end
     end
 
-    if File.exist?(gitignore = File.join(git_path, ".gitignore"))
+    if File.exist?(gitignore = git_path + ".gitignore")
       @ignore_list = @ignore_list.concat(File.read(gitignore).split(/\n/).reject{|i| (i.size == 0) or i.strip.start_with?("#") }.map {|i| i.gsub("*",".*") } )
     end
 
@@ -50,20 +50,21 @@ module GitP4Sync
         puts "#{action.to_s.upcase} in Git: #{file}"
         
         Dir.chdir(p4_path) do
+          p4_file_path = p4_path + file
           case action
           when :new
-            run_cmd "cp -r '#{git_path}#{file}' '#{p4_path}#{file}'", simulate
-            run_cmd "#{p4_add_recursively("'#{p4_path}#{file}'")}", simulate
+            run_cmd "cp -r '#{git_path + file}' '#{p4_file_path}'", simulate
+            p4_add_recursively "#{p4_file_path}", simulate
           when :deleted
-            file_path="#{p4_path}#{file}"
+            file_path="#{p4_file_path}"
             Find.find(file_path) do |f|
               puts "DELETED in Git (dir contents): #{f}" if file_path != f
               run_cmd("p4 delete '#{f}'", simulate)
             end
             FileUtils.remove_entry_secure(file_path,:force => true)
           when :modified
-            run_cmd "p4 edit '#{p4_path}#{file}'", simulate
-            run_cmd "cp '#{git_path}#{file}' '#{p4_path}#{file}'", simulate
+            run_cmd "p4 edit '#{p4_file_path}'", simulate
+            run_cmd "cp '#{git_path + file}' '#{p4_file_path}'", simulate
           else
             puts "Unknown change type #{action}. Stopping."
             exit 1
@@ -112,17 +113,14 @@ module GitP4Sync
     return false
   end
   
-  def add_slash(path)
-    path += "/" unless path[-1..-1] == "/"
-    path
-  end
-  
   def strip_leading_slash(path)
     path.sub(/^\//, "")
   end
   
-  def p4_add_recursively(path)
-    "find #{path} -type f -print | p4 -x - add -f"
+  def p4_add_recursively(path, simulate = false)
+    Find.find(path) do |f|
+      run_cmd "p4 add -f '#{f}'", simulate
+    end
   end
 
   def verify_path_exist!(path)
